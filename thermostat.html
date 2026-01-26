@@ -202,21 +202,6 @@
             document.getElementById('timeDisplay').textContent = `${hours}:${minutes}:${seconds}`;
             document.getElementById('dateDisplay').textContent = `${dayName}, ${day} ${month} ${year}`;
             
-            // Bugünün gününü otomatik seç
-            const dayMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-            const todayKey = dayMap[now.getDay()];
-            if (currentDay !== todayKey) {
-                currentDay = todayKey;
-                document.querySelectorAll('.day-btn').forEach(btn => btn.classList.remove('active'));
-                const dayButtons = document.querySelectorAll('.day-btn');
-                const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-                const todayIndex = dayOrder.indexOf(todayKey);
-                if (todayIndex >= 0 && dayButtons[todayIndex]) {
-                    dayButtons[todayIndex].classList.add('active');
-                }
-                displayHours();
-            }
-            
             // Program durumunu güncelle
             updateScheduleStatus(now);
         }
@@ -506,6 +491,20 @@
             if (!loaded) {
                 initSchedule();
             }
+            
+            // Bugünün gününü otomatik seç
+            const now = new Date();
+            const dayMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            const todayKey = dayMap[now.getDay()];
+            currentDay = todayKey;
+            document.querySelectorAll('.day-btn').forEach(btn => btn.classList.remove('active'));
+            const dayButtons = document.querySelectorAll('.day-btn');
+            const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            const todayIndex = dayOrder.indexOf(todayKey);
+            if (todayIndex >= 0 && dayButtons[todayIndex]) {
+                dayButtons[todayIndex].classList.add('active');
+            }
+            
             connectMQTT();
             
             // 3 saniye sonra MQTT'den veri gelmediyse localStorage'dan göster
@@ -519,4 +518,3 @@
     </script>
 </body>
 </html>
-
