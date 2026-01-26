@@ -48,6 +48,8 @@
         .connection-status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; border-radius: 5px; font-size: 12px; }
         .connected { background: #4ecca3; color: #000; }
         .disconnected { background: #e94560; color: #fff; }
+        .toast { position: fixed; top: 70px; right: 10px; padding: 15px 20px; border-radius: 5px; font-size: 14px; background: #4ecca3; color: #000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 2000; animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
     </style>
 </head>
 <body>
@@ -95,11 +97,6 @@
                     <option value="auto">Otomatik</option>
                     <option value="manual">Manuel</option>
                 </select>
-            </div>
-            <div class="control-group">
-                <label>Program Kontrol Periyodu (saniye)</label>
-                <input type="number" id="checkIntervalInput" min="5" max="300" step="5" value="60">
-                <button onclick="setCheckInterval()">Ayarla</button>
             </div>
         </div>
         
@@ -251,6 +248,16 @@
         const MQTT_BROKER = 'wss://28e8bc8650f945549e20987d9ad50e06.s1.eu.hivemq.cloud:8884/mqtt';
         const MQTT_USER = 'kerim';
         const MQTT_PASSWORD = 'Yalova77.';
+        
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.remove();
+            }, 1500);
+        }
 
         function connectMQTT() {
             console.log('MQTT bağlanıyor:', MQTT_BROKER);
@@ -389,9 +396,8 @@
         
         function updateHour(hour, temp) {
             schedule[currentDay][hour] = parseFloat(temp);
-            // localStorage'a kaydet
             localStorage.setItem('thermostat_schedule', JSON.stringify(schedule));
-            // MQTT'ye gönder (otomatik)
+            
             if (client && client.connected()) {
                 const json = JSON.stringify(schedule);
                 client.publish('thermostat/schedule/update', json, {retain: true});
@@ -431,7 +437,7 @@
         function applyCopy() {
             const checkboxes = document.querySelectorAll('.day-checkbox input:checked');
             if (checkboxes.length === 0) {
-                alert('Lütfen en az bir gün seçin');
+                showToast('Lütfen en az bir gün seçin');
                 return;
             }
             
@@ -441,15 +447,12 @@
                 copiedDays.push(cb.value);
             });
             
-            // localStorage'a kaydet
             localStorage.setItem('thermostat_schedule', JSON.stringify(schedule));
-            
-            // MQTT'ye gönder
             const json = JSON.stringify(schedule);
             client.publish('thermostat/schedule/update', json, {retain: true});
             
             closeCopyModal();
-            alert(`${copiedDays.length} güne kopyalandı ve NodeMCU'ya gönderildi!`);
+            showToast(`${copiedDays.length} güne kopyalandı!`);
             console.log('Kopyalama NodeMCU\'ya gönderildi:', schedule);
         }
         
@@ -463,14 +466,10 @@
         }
 
         function saveSchedule() {
-            // localStorage'a kaydet
             localStorage.setItem('thermostat_schedule', JSON.stringify(schedule));
-            
-            // MQTT'ye gönder
             const json = JSON.stringify(schedule);
             client.publish('thermostat/schedule/update', json, {retain: true});
-            
-            alert('Tüm program NodeMCU\'ya gönderildi!');
+            showToast('Program NodeMCU\'ya gönderildi!');
             console.log('Tüm program kaydedildi:', schedule);
         }
         
