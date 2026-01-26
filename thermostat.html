@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akıllı Termostat</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .card { background: #16213e; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        h1 { text-align: center; color: #0f3460; margin-bottom: 30px; }
+        h2 { color: #e94560; margin-bottom: 15px; font-size: 18px; }
+        .temp-display { text-align: center; font-size: 48px; font-weight: bold; color: #e94560; margin: 20px 0; }
+        .status { display: flex; justify-content: space-between; margin: 10px 0; padding: 10px; background: #0f3460; border-radius: 5px; }
+        .status-label { color: #aaa; }
+        .status-value { color: #fff; font-weight: bold; }
+        .control-group { margin: 15px 0; }
+        label { display: block; margin-bottom: 5px; color: #aaa; font-size: 14px; }
+        input[type="number"], input[type="time"], select { width: 100%; padding: 10px; background: #0f3460; border: 1px solid #e94560; border-radius: 5px; color: #fff; font-size: 16px; }
+        button { width: 100%; padding: 12px; background: #e94560; color: #fff; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+        button:hover { background: #c23b52; }
+        .relay-on { color: #4ecca3; }
+        .relay-off { color: #aaa; }
+        .schedule-item { background: #0f3460; padding: 10px; margin: 5px 0; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
+        .schedule-item button { width: auto; padding: 5px 15px; margin: 0; }
+        .hour-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-top: 15px; }
+        .hour-item { background: #0f3460; padding: 8px; border-radius: 5px; text-align: center; }
+        .hour-item label { display: block; font-size: 12px; color: #aaa; margin-bottom: 5px; }
+        .hour-item input { width: 100%; padding: 5px; background: #1a1a2e; border: 1px solid #e94560; border-radius: 3px; color: #fff; text-align: center; font-size: 14px; }
+        .day-selector { display: flex; gap: 5px; margin-bottom: 15px; flex-wrap: wrap; }
+        .day-btn { padding: 10px 15px; background: #0f3460; border: none; color: #aaa; cursor: pointer; border-radius: 5px; font-size: 14px; }
+        .day-btn.active { background: #e94560; color: #fff; }
+        .schedule-actions { display: flex; gap: 10px; margin-top: 15px; }
+        .current-time { text-align: center; font-size: 32px; font-weight: bold; color: #4ecca3; margin-bottom: 15px; padding: 15px; background: #0f3460; border-radius: 8px; }
+        .current-time .date { font-size: 14px; color: #aaa; margin-top: 5px; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); }
+        .modal-content { background: #16213e; margin: 10% auto; padding: 30px; border-radius: 10px; max-width: 400px; }
+        .modal-content h3 { color: #e94560; margin-bottom: 20px; }
+        .day-checkbox { display: flex; align-items: center; padding: 10px; margin: 5px 0; background: #0f3460; border-radius: 5px; cursor: pointer; }
+        .day-checkbox:hover { background: #1a2a4e; }
+        .day-checkbox input { margin-right: 10px; width: 20px; height: 20px; cursor: pointer; }
+        .day-checkbox label { cursor: pointer; flex: 1; }
+        .modal-buttons { display: flex; gap: 10px; margin-top: 20px; }
+        .day-tabs { display: flex; overflow-x: auto; margin-bottom: 10px; }
+        .day-tab { padding: 10px 15px; background: #0f3460; border: none; color: #aaa; cursor: pointer; white-space: nowrap; }
+        .day-tab.active { background: #e94560; color: #fff; }
+        .connection-status { position: fixed; top: 10px; right: 10px; padding: 5px 10px; border-radius: 5px; font-size: 12px; }
+        .connected { background: #4ecca3; color: #000; }
+        .disconnected { background: #e94560; color: #fff; }
+    </style>
+</head>
+<body>
+    <div class="connection-status disconnected" id="mqttStatus">Bağlanıyor...</div>
+    
+    <div class="container">
+        <h1>🌡️ Akıllı Termostat</h1>
+        
+        <div class="card">
+            <h2>Anlık Durum</h2>
+            <div class="temp-display" id="currentTemp">--.-°C</div>
+            <div class="status">
+                <span class="status-label">Nem:</span>
+                <span class="status-value" id="humidity">--%</span>
+            </div>
+            <div class="status">
+                <span class="status-label">Hedef:</span>
+                <span class="status-value" id="targetTemp">--°C</span>
+            </div>
+            <div class="status">
+                <span class="status-label">Program:</span>
+                <span class="status-value" id="scheduleStatus" style="font-size: 12px;">Bekleniyor...</span>
+            </div>
+            <div class="status">
+                <span class="status-label">Röle:</span>
+                <span class="status-value" id="relayStatus">--</span>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Kontrol</h2>
+            <div class="control-group">
+                <label>Hedef Sıcaklık (°C)</label>
+                <input type="number" id="targetInput" min="15" max="30" step="0.5" value="22">
+                <button onclick="setTarget()">Ayarla</button>
+            </div>
+            <div class="control-group">
+                <label>Histerezis (°C)</label>
+                <input type="number" id="hysteresisInput" min="0.1" max="3" step="0.1" value="0.5">
+                <button onclick="setHysteresis()">Ayarla</button>
+            </div>
+            <div class="control-group">
+                <label>Mod</label>
+                <select id="modeSelect" onchange="setMode()">
+                    <option value="auto">Otomatik</option>
+                    <option value="manual">Manuel</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Program Kontrol Periyodu (saniye)</label>
+                <input type="number" id="checkIntervalInput" min="5" max="300" step="5" value="60">
+                <button onclick="setCheckInterval()">Ayarla</button>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Haftalık Program</h2>
+            
+            <div class="current-time" id="currentTime">
+                <div id="timeDisplay">--:--:--</div>
+                <div class="date" id="dateDisplay">-- --, ----</div>
+            </div>
+            
+            <div class="day-selector">
+                <button class="day-btn active" onclick="selectDay('monday')">Pazartesi</button>
+                <button class="day-btn" onclick="selectDay('tuesday')">Salı</button>
+                <button class="day-btn" onclick="selectDay('wednesday')">Çarşamba</button>
+                <button class="day-btn" onclick="selectDay('thursday')">Perşembe</button>
+                <button class="day-btn" onclick="selectDay('friday')">Cuma</button>
+                <button class="day-btn" onclick="selectDay('saturday')">Cumartesi</button>
+                <button class="day-btn" onclick="selectDay('sunday')">Pazar</button>
+            </div>
+            
+            <div class="hour-grid" id="hourGrid"></div>
+            
+            <div class="schedule-actions">
+                <button onclick="saveSchedule()" style="flex: 1;">NodeMCU'ya Gönder</button>
+                <button onclick="showCopyModal()" style="flex: 1; background: #0f3460;">Günü Kopyala</button>
+                <button onclick="resetDay()" style="flex: 1; background: #666;">Sıfırla</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kopyalama Modal -->
+    <div id="copyModal" class="modal">
+        <div class="modal-content">
+            <h3>Hangi günlere kopyalanacak?</h3>
+            <div class="day-checkbox">
+                <input type="checkbox" id="copy-monday" value="monday">
+                <label for="copy-monday">Pazartesi</label>
+            </div>
+            <div class="day-checkbox">
+                <input type="checkbox" id="copy-tuesday" value="tuesday">
+                <label for="copy-tuesday">Salı</label>
+            </div>
+            <div class="day-checkbox">
+                <input type="checkbox" id="copy-wednesday" value="wednesday">
+                <label for="copy-wednesday">Çarşamba</label>
+            </div>
+            <div class="day-checkbox">
+                <input type="checkbox" id="copy-thursday" value="thursday">
+                <label for="copy-thursday">Perşembe</label>
+            </div>
+            <div class="day-checkbox">
+                <input type="checkbox" id="copy-friday" value="friday">
+                <label for="copy-friday">Cuma</label>
+            </div>
+            <div class="day-checkbox">
+                <input type="checkbox" id="copy-saturday" value="saturday">
+                <label for="copy-saturday">Cumartesi</label>
+            </div>
+            <div class="day-checkbox">
+                <input type="checkbox" id="copy-sunday" value="sunday">
+                <label for="copy-sunday">Pazar</label>
+            </div>
+            <div class="modal-buttons">
+                <button onclick="applyCopy()" style="flex: 1;">Kopyala</button>
+                <button onclick="closeCopyModal()" style="flex: 1; background: #666;">Iptal</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script>
+        let client;
+        let currentDay = 'monday';
+        let schedule = {};  // Boş başlat, loadSchedule veya initSchedule dolduracak
+        let scheduleLoaded = false;  // MQTT'den veri geldi mi?
+        
+        const dayNames = {
+            'monday': 'Pazartesi',
+            'tuesday': 'Salı',
+            'wednesday': 'Çarşamba',
+            'thursday': 'Perşembe',
+            'friday': 'Cuma',
+            'saturday': 'Cumartesi',
+            'sunday': 'Pazar'
+        };
+        
+        // Anlık saati güncelle
+        function updateClock() {
+            const now = new Date();
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const seconds = now.getSeconds().toString().padStart(2, '0');
+            
+            const days = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+            const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+            
+            const dayName = days[now.getDay()];
+            const day = now.getDate();
+            const month = months[now.getMonth()];
+            const year = now.getFullYear();
+            
+            document.getElementById('timeDisplay').textContent = `${hours}:${minutes}:${seconds}`;
+            document.getElementById('dateDisplay').textContent = `${dayName}, ${day} ${month} ${year}`;
+            
+            // Program durumunu güncelle
+            updateScheduleStatus(now);
+        }
+        
+        function updateScheduleStatus(now) {
+            const dayMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            const today = dayMap[now.getDay()];
+            const currentHour = now.getHours();
+            
+            if (schedule[today] && schedule[today][currentHour]) {
+                const programTemp = schedule[today][currentHour];
+                document.getElementById('scheduleStatus').innerHTML = 
+                    `<span style="color: #4ecca3;">✓ Aktif: ${currentHour}:00 → ${programTemp}°C</span>`;
+            } else {
+                const nextHour = (currentHour + 1) % 24;
+                if (schedule[today] && schedule[today][nextHour]) {
+                    document.getElementById('scheduleStatus').innerHTML = 
+                        `Sonraki: ${nextHour}:00 → ${schedule[today][nextHour]}°C`;
+                } else {
+                    document.getElementById('scheduleStatus').textContent = 'Program yok';
+                }
+            }
+        }
+        
+        // Her saniye saati güncelle
+        setInterval(updateClock, 1000);
+        updateClock();
+        
+        // Her gün için varsayılan 22 derece
+        function initSchedule() {
+            schedule = {
+                monday: {}, tuesday: {}, wednesday: {}, thursday: {},
+                friday: {}, saturday: {}, sunday: {}
+            };
+            const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+            days.forEach(day => {
+                for (let h = 0; h < 24; h++) {
+                    schedule[day][h] = 22;
+                }
+            });
+        }
+
+        // MQTT Bağlantısı - BURAYA KENDİ BROKER BİLGİLERİNİ GİR
+        const MQTT_BROKER = 'wss://28e8bc8650f945549e20987d9ad50e06.s1.eu.hivemq.cloud:8884/mqtt';
+        const MQTT_USER = 'kerim';
+        const MQTT_PASSWORD = 'Yalova77.';
+
+        function connectMQTT() {
+            console.log('MQTT bağlanıyor:', MQTT_BROKER);
+            client = mqtt.connect(MQTT_BROKER, {
+                username: MQTT_USER,
+                password: MQTT_PASSWORD,
+                clientId: 'WebApp_' + Math.random().toString(16).substr(2, 8),
+                reconnectPeriod: 5000
+            });
+
+            client.on('connect', () => {
+                console.log('MQTT bağlandı!');
+                document.getElementById('mqttStatus').textContent = 'Bağlı';
+                document.getElementById('mqttStatus').className = 'connection-status connected';
+                
+                client.subscribe('thermostat/status/#');
+                client.subscribe('thermostat/control/#');
+                client.subscribe('thermostat/schedule/update');
+                
+                // Bağlanınca NodeMCU'dan program iste
+                setTimeout(() => {
+                    console.log('NodeMCU\'dan program isteniyor...');
+                    // NodeMCU retained message gönderecek
+                }, 1000);
+            });
+
+            client.on('message', (topic, message) => {
+                const msg = message.toString();
+                console.log('Mesaj:', topic, msg);
+                
+                if (topic === 'thermostat/status/temperature') {
+                    document.getElementById('currentTemp').textContent = parseFloat(msg).toFixed(1) + '°C';
+                }
+                else if (topic === 'thermostat/status/humidity') {
+                    document.getElementById('humidity').textContent = parseFloat(msg).toFixed(1) + '%';
+                }
+                else if (topic === 'thermostat/status/relay') {
+                    const status = document.getElementById('relayStatus');
+                    status.textContent = msg === 'ON' ? 'AÇIK' : 'KAPALI';
+                    status.className = msg === 'ON' ? 'status-value relay-on' : 'status-value relay-off';
+                }
+                else if (topic === 'thermostat/control/target') {
+                    document.getElementById('targetTemp').textContent = parseFloat(msg).toFixed(1) + '°C';
+                    document.getElementById('targetInput').value = parseFloat(msg);
+                }
+                else if (topic === 'thermostat/control/hysteresis') {
+                    document.getElementById('hysteresisInput').value = parseFloat(msg);
+                }
+                else if (topic === 'thermostat/control/mode') {
+                    document.getElementById('modeSelect').value = msg;
+                }
+                else if (topic === 'thermostat/schedule/update') {
+                    try {
+                        const receivedSchedule = JSON.parse(msg);
+                        schedule = receivedSchedule;
+                        scheduleLoaded = true;
+                        localStorage.setItem('thermostat_schedule', msg);
+                        displayHours();
+                        console.log('Program NodeMCU\'dan alındı:', schedule);
+                    } catch (e) {
+                        console.error('Program parse hatası:', e);
+                        // Hata varsa localStorage'dan yükle
+                        if (!scheduleLoaded) {
+                            loadSchedule();
+                            displayHours();
+                        }
+                    }
+                }
+            });
+
+            client.on('error', (err) => {
+                console.error('MQTT Hatası:', err);
+                document.getElementById('mqttStatus').textContent = 'Bağlantı Hatası';
+                document.getElementById('mqttStatus').className = 'connection-status disconnected';
+                // MQTT bağlanmazsa localStorage'dan göster
+                displayHours();
+            });
+        }
+
+        function setTarget() {
+            const value = document.getElementById('targetInput').value;
+            client.publish('thermostat/control/target', value);
+            document.getElementById('targetTemp').textContent = value + '°C';
+        }
+
+        function setHysteresis() {
+            const value = document.getElementById('hysteresisInput').value;
+            client.publish('thermostat/control/hysteresis', value);
+        }
+
+        function setMode() {
+            const value = document.getElementById('modeSelect').value;
+            client.publish('thermostat/control/mode', value);
+        }
+        
+        function setCheckInterval() {
+            const value = document.getElementById('checkIntervalInput').value;
+            const seconds = parseInt(value);
+            if (seconds < 5 || seconds > 300) {
+                alert('Lütfen 5-300 saniye arası bir değer girin');
+                return;
+            }
+            client.publish('thermostat/control/checkinterval', value, {retain: true});
+            alert(`Program kontrol periyodu ${seconds} saniye olarak ayarlandı`);
+        }
+
+        function selectDay(day) {
+            currentDay = day;
+            document.querySelectorAll('.day-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            displayHours();
+        }
+        
+        function displayHours() {
+            const grid = document.getElementById('hourGrid');
+            grid.innerHTML = '';
+            
+            for (let h = 0; h < 24; h++) {
+                const hourDiv = document.createElement('div');
+                hourDiv.className = 'hour-item';
+                hourDiv.innerHTML = `
+                    <label>${h.toString().padStart(2, '0')}:00</label>
+                    <input type="number" 
+                           value="${schedule[currentDay][h]}" 
+                           min="15" 
+                           max="30" 
+                           step="0.5"
+                           onchange="updateHour(${h}, this.value)">
+                `;
+                grid.appendChild(hourDiv);
+            }
+        }
+        
+        function updateHour(hour, temp) {
+            schedule[currentDay][hour] = parseFloat(temp);
+            // localStorage'a kaydet
+            localStorage.setItem('thermostat_schedule', JSON.stringify(schedule));
+            // MQTT'ye gönder (otomatik)
+            if (client && client.connected()) {
+                const json = JSON.stringify(schedule);
+                client.publish('thermostat/schedule/update', json, {retain: true});
+                console.log(`${currentDay} ${hour}:00 = ${temp}°C NodeMCU'ya gönderildi`);
+                
+                // Eğer şu anki saat değiştiriliyorsa, hedef sıcaklığı da güncelle
+                const now = new Date();
+                const dayMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                const today = dayMap[now.getDay()];
+                const currentHour = now.getHours();
+                
+                if (currentDay === today && hour === currentHour) {
+                    client.publish('thermostat/control/target', temp, {retain: true});
+                    console.log(`Şu anki hedef sıcaklık güncellendi: ${temp}°C`);
+                }
+            }
+        }
+        
+        function showCopyModal() {
+            // Mevcut günü checkbox'lardan kaldır
+            document.querySelectorAll('.day-checkbox input').forEach(cb => {
+                cb.checked = false;
+                cb.disabled = (cb.value === currentDay);
+                if (cb.disabled) {
+                    cb.parentElement.style.opacity = '0.5';
+                } else {
+                    cb.parentElement.style.opacity = '1';
+                }
+            });
+            document.getElementById('copyModal').style.display = 'block';
+        }
+        
+        function closeCopyModal() {
+            document.getElementById('copyModal').style.display = 'none';
+        }
+        
+        function applyCopy() {
+            const checkboxes = document.querySelectorAll('.day-checkbox input:checked');
+            if (checkboxes.length === 0) {
+                alert('Lütfen en az bir gün seçin');
+                return;
+            }
+            
+            let copiedDays = [];
+            checkboxes.forEach(cb => {
+                schedule[cb.value] = {...schedule[currentDay]};
+                copiedDays.push(cb.value);
+            });
+            
+            // localStorage'a kaydet
+            localStorage.setItem('thermostat_schedule', JSON.stringify(schedule));
+            
+            // MQTT'ye gönder
+            const json = JSON.stringify(schedule);
+            client.publish('thermostat/schedule/update', json, {retain: true});
+            
+            closeCopyModal();
+            alert(`${copiedDays.length} güne kopyalandı ve NodeMCU'ya gönderildi!`);
+            console.log('Kopyalama NodeMCU\'ya gönderildi:', schedule);
+        }
+        
+        function resetDay() {
+            if (confirm('Bu günün tüm saatlerini 22°C yapmak ister misiniz?')) {
+                for (let h = 0; h < 24; h++) {
+                    schedule[currentDay][h] = 22;
+                }
+                displayHours();
+            }
+        }
+
+        function saveSchedule() {
+            // localStorage'a kaydet
+            localStorage.setItem('thermostat_schedule', JSON.stringify(schedule));
+            
+            // MQTT'ye gönder
+            const json = JSON.stringify(schedule);
+            client.publish('thermostat/schedule/update', json, {retain: true});
+            
+            alert('Tüm program NodeMCU\'ya gönderildi!');
+            console.log('Tüm program kaydedildi:', schedule);
+        }
+        
+        function loadSchedule() {
+            const saved = localStorage.getItem('thermostat_schedule');
+            if (saved) {
+                try {
+                    schedule = JSON.parse(saved);
+                    console.log('Program localStorage\'dan yüklendi:', schedule);
+                    return true;
+                } catch (e) {
+                    console.error('Program yükleme hatası:', e);
+                }
+            }
+            return false;
+        }
+
+        // Sayfa yüklendiğinde bağlan
+        window.onload = () => {
+            // localStorage'dan yükleme - sadece MQTT gelmezse yedek olarak
+            const loaded = loadSchedule();
+            if (!loaded) {
+                initSchedule();
+            }
+            connectMQTT();
+            
+            // 3 saniye sonra MQTT'den veri gelmediyse localStorage'dan göster
+            setTimeout(() => {
+                if (!scheduleLoaded) {
+                    console.log('MQTT\'den veri gelmedi, localStorage kullanılıyor');
+                    displayHours();
+                }
+            }, 3000);
+        };
+    </script>
+</body>
+</html>
