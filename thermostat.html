@@ -309,9 +309,6 @@
                 else if (topic === 'thermostat/control/mode') {
                     document.getElementById('modeSelect').value = msg;
                 }
-                else if (topic === 'thermostat/control/checkinterval') {
-                    document.getElementById('checkIntervalInput').value = parseInt(msg);
-                }
                 else if (topic === 'thermostat/schedule/update') {
                     try {
                         const receivedSchedule = JSON.parse(msg);
@@ -507,3 +504,4 @@
     </script>
 </body>
 </html>
+
