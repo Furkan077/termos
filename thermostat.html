@@ -26,7 +26,9 @@
         .schedule-item button { width: auto; padding: 5px 15px; margin: 0; }
         .hour-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-top: 15px; }
         .hour-item { background: #0f3460; padding: 8px; border-radius: 5px; text-align: center; }
+        .hour-item.current-hour { background: #e94560; border: 2px solid #4ecca3; }
         .hour-item label { display: block; font-size: 12px; color: #aaa; margin-bottom: 5px; }
+        .hour-item.current-hour label { color: #fff; font-weight: bold; }
         .hour-item input { width: 100%; padding: 5px; background: #1a1a2e; border: 1px solid #e94560; border-radius: 3px; color: #fff; text-align: center; font-size: 14px; }
         .day-selector { display: flex; gap: 5px; margin-bottom: 15px; flex-wrap: wrap; }
         .day-btn { padding: 10px 15px; background: #0f3460; border: none; color: #aaa; cursor: pointer; border-radius: 5px; font-size: 14px; }
@@ -121,7 +123,6 @@
             <div class="hour-grid" id="hourGrid"></div>
             
             <div class="schedule-actions">
-                <button onclick="saveSchedule()" style="flex: 1;">NodeMCU'ya Gönder</button>
                 <button onclick="showCopyModal()" style="flex: 1; background: #0f3460;">Günü Kopyala</button>
                 <button onclick="resetDay()" style="flex: 1; background: #666;">Sıfırla</button>
             </div>
@@ -375,13 +376,27 @@
             const grid = document.getElementById('hourGrid');
             grid.innerHTML = '';
             
+            const now = new Date();
+            const dayMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            const today = dayMap[now.getDay()];
+            const currentHour = now.getHours();
+            
             for (let h = 0; h < 24; h++) {
                 const hourDiv = document.createElement('div');
                 hourDiv.className = 'hour-item';
+                
+                // Şu anki saat ve bugün ise vurgula
+                if (currentDay === today && h === currentHour) {
+                    hourDiv.classList.add('current-hour');
+                }
+                
+                // Eğer değer yoksa 22 varsayılan
+                const tempValue = schedule[currentDay] && schedule[currentDay][h] !== undefined ? schedule[currentDay][h] : 22;
+                
                 hourDiv.innerHTML = `
                     <label>${h.toString().padStart(2, '0')}:00</label>
                     <input type="number" 
-                           value="${schedule[currentDay][h]}" 
+                           value="${tempValue}" 
                            min="15" 
                            max="30" 
                            step="0.5"
@@ -395,7 +410,7 @@
             schedule[currentDay][hour] = parseFloat(temp);
             localStorage.setItem('thermostat_schedule', JSON.stringify(schedule));
             
-            if (client && client.connected()) {
+            if (client && client.connected) {
                 const json = JSON.stringify(schedule);
                 client.publish('thermostat/schedule/update', json, {retain: true});
                 console.log(`${currentDay} ${hour}:00 = ${temp}°C NodeMCU'ya gönderildi`);
@@ -440,7 +455,8 @@
             
             let copiedDays = [];
             checkboxes.forEach(cb => {
-                schedule[cb.value] = {...schedule[currentDay]};
+                // Array olarak kopyala (object değil)
+                schedule[cb.value] = [...schedule[currentDay]];
                 copiedDays.push(cb.value);
             });
             
@@ -458,7 +474,11 @@
                 for (let h = 0; h < 24; h++) {
                     schedule[currentDay][h] = 22;
                 }
+                localStorage.setItem('thermostat_schedule', JSON.stringify(schedule));
+                const json = JSON.stringify(schedule);
+                client.publish('thermostat/schedule/update', json, {retain: true});
                 displayHours();
+                showToast('Sıfırlandı ve NodeMCU\'ya gönderildi!');
             }
         }
 
