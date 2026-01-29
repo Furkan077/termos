@@ -339,8 +339,12 @@
         }
 
         function setTarget() {
-            const value = document.getElementById('targetInput').value;
-            client.publish('thermostat/control/target', value);
+            const value = parseFloat(document.getElementById('targetInput').value);
+            if (value < 15 || value > 30) {
+                showToast('Hedef sıcaklık 15-30°C arası olmalı!');
+                return;
+            }
+            client.publish('thermostat/control/target', value.toString());
             document.getElementById('targetTemp').textContent = value + '°C';
         }
 
@@ -407,7 +411,13 @@
         }
         
         function updateHour(hour, temp) {
-            schedule[currentDay][hour] = parseFloat(temp);
+            const tempValue = parseFloat(temp);
+            if (tempValue < 15 || tempValue > 30) {
+                showToast('Sıcaklık 15-30°C arası olmalı!');
+                displayHours();
+                return;
+            }
+            schedule[currentDay][hour] = tempValue;
             localStorage.setItem('thermostat_schedule', JSON.stringify(schedule));
             
             if (client && client.connected) {
@@ -422,8 +432,10 @@
                 const currentHour = now.getHours();
                 
                 if (currentDay === today && hour === currentHour) {
+                    client.publish('thermostat/control/mode', 'auto', {retain: true});
                     client.publish('thermostat/control/target', temp, {retain: true});
-                    console.log(`Şu anki hedef sıcaklık güncellendi: ${temp}°C`);
+                    console.log(`Şu anki hedef sıcaklık güncellendi: ${temp}°C (Mod: Otomatik)`);
+                    document.getElementById('modeSelect').value = 'auto';
                 }
             }
         }
