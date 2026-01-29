@@ -539,8 +539,8 @@
             client.publish('thermostat/control/mode', value);
             updateTargetInputState(value);
             
-            // Otomatik moda geçince aktif program değerini hedef olarak gönder
             if (value === 'auto') {
+                // Otomatik moda geçince aktif program değerini hedef olarak gönder
                 const now = new Date();
                 const dayMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
                 const today = dayMap[now.getDay()];
@@ -548,7 +548,6 @@
                 
                 if (schedule[today] && schedule[today][currentHour] !== undefined) {
                     const programTarget = schedule[today][currentHour];
-                    // 2.5 saniye gecikme ile gönder (NodeMCU'nun ignore süresi bittikten sonra)
                     setTimeout(() => {
                         client.publish('thermostat/control/target', programTarget.toString(), {retain: true});
                         document.getElementById('targetTemp').textContent = programTarget.toFixed(1) + '°C';
@@ -556,6 +555,10 @@
                         console.log('Oto mod: Program değeri gönderildi:', programTarget);
                     }, 2500);
                 }
+            } else {
+                // Manuel moda geçince NodeMCU'dan hedef değeri talep et
+                console.log('Manuel mod: NodeMCU\'dan hedef değer bekleniyor...');
+                // NodeMCU zaten manualTargetTemp'i publish edecek, MQTT callback alacak
             }
         }
         
