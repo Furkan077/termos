@@ -52,6 +52,18 @@
         .disconnected { background: #e94560; color: #fff; }
         .toast { position: fixed; top: 70px; right: 10px; padding: 15px 20px; border-radius: 5px; font-size: 14px; background: #4ecca3; color: #000; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 2000; animation: slideIn 0.3s ease-out; }
         @keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .toggle-container { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #0f3460; border-radius: 5px; margin-top: 15px; }
+        .toggle-label { display: flex; align-items: center; gap: 10px; }
+        .toggle-label span { font-size: 16px; }
+        .toggle-label small { color: #aaa; font-size: 12px; }
+        .toggle-switch { position: relative; width: 50px; height: 26px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #666; transition: .3s; border-radius: 26px; }
+        .toggle-slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+        input:checked + .toggle-slider { background-color: #e94560; }
+        input:checked + .toggle-slider:before { transform: translateX(24px); }
+        .keylock-warning { background: #e94560; color: #fff; padding: 10px; border-radius: 5px; text-align: center; margin-top: 10px; display: none; }
+        .keylock-warning.active { display: block; }
     </style>
 </head>
 <body>
@@ -94,11 +106,32 @@
                 <button onclick="setHysteresis()">Ayarla</button>
             </div>
             <div class="control-group">
+                <label>🔧 Sensör Kalibrasyonu (°C)</label>
+                <input type="number" id="calibrationInput" min="-5" max="5" step="0.1" value="0.0">
+                <button onclick="setCalibration()">Ayarla</button>
+                <small style="display: block; color: #aaa; font-size: 12px; margin-top: 5px;">
+                    Sensör sapması varsa düzeltme değeri girin (örn: +2.5 veya -1.0)
+                </small>
+            </div>
+            <div class="control-group">
                 <label>Mod</label>
                 <select id="modeSelect" onchange="setMode()">
                     <option value="auto">Otomatik</option>
                     <option value="manual">Manuel</option>
                 </select>
+            </div>
+            <div class="toggle-container">
+                <div class="toggle-label">
+                    <span>🔒 Tuş Kilidi</span>
+                    <small>(Çocuk Kilidi)</small>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="keyLockToggle" onchange="setKeyLock()">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="keylock-warning" id="keyLockWarning">
+                ⚠️ Tuş kilidi aktif - Cihaz üzerinden kontrol devre dışı!
             </div>
         </div>
         
@@ -174,6 +207,11 @@
         let currentDay = 'monday';
         let schedule = {};  // Boş başlat, loadSchedule veya initSchedule dolduracak
         let scheduleLoaded = false;  // MQTT'den veri geldi mi?
+        
+        // MQTT Otomatik Reconnect
+        let reconnectAttempts = 0;
+        let reconnectDelay = 5000;  // 5 saniye başlangıç
+        let reconnectTimer = null;
         
         const dayNames = {
             'monday': 'Pazartesi',
@@ -266,22 +304,27 @@
                 username: MQTT_USER,
                 password: MQTT_PASSWORD,
                 clientId: 'WebApp_' + Math.random().toString(16).substr(2, 8),
-                reconnectPeriod: 5000
+                reconnectPeriod: 0  // Otomatik reconnect'i kapat (kendimiz yöneteceğiz)
             });
 
             client.on('connect', () => {
-                console.log('MQTT bağlandı!');
+                console.log('✅ MQTT bağlandı!');
                 document.getElementById('mqttStatus').textContent = 'Bağlı';
                 document.getElementById('mqttStatus').className = 'connection-status connected';
+                
+                // Başarılı bağlantı, sayaçları sıfırla
+                reconnectAttempts = 0;
+                reconnectDelay = 5000;
                 
                 client.subscribe('thermostat/status/#');
                 client.subscribe('thermostat/control/#');
                 client.subscribe('thermostat/schedule/update');
+                client.subscribe('thermostat/control/keylock');
+                client.subscribe('thermostat/control/calibration');
                 
                 // Bağlanınca NodeMCU'dan program iste
                 setTimeout(() => {
                     console.log('NodeMCU\'dan program isteniyor...');
-                    // NodeMCU retained message gönderecek
                 }, 1000);
             });
 
@@ -319,7 +362,20 @@
                 }
                 else if (topic === 'thermostat/control/mode') {
                     document.getElementById('modeSelect').value = msg;
+                    localStorage.setItem('thermostat_mode', msg);  // Modu kaydet
                     updateTargetInputState(msg);
+                }
+                else if (topic === 'thermostat/control/keylock') {
+                    const isLocked = (msg === 'ON');
+                    document.getElementById('keyLockToggle').checked = isLocked;
+                    document.getElementById('keyLockWarning').classList.toggle('active', isLocked);
+                    localStorage.setItem('thermostat_keylock', msg);
+                    console.log('Tuş kilidi:', isLocked ? 'AKTİF' : 'KAPALI');
+                }
+                else if (topic === 'thermostat/control/calibration') {
+                    document.getElementById('calibrationInput').value = parseFloat(msg);
+                    localStorage.setItem('thermostat_calibration', msg);
+                    console.log('Kalibrasyon:', msg + '°C');
                 }
                 else if (topic === 'thermostat/schedule/update') {
                     try {
@@ -341,12 +397,54 @@
             });
 
             client.on('error', (err) => {
-                console.error('MQTT Hatası:', err);
+                console.error('❌ MQTT Hatası:', err);
                 document.getElementById('mqttStatus').textContent = 'Bağlantı Hatası';
                 document.getElementById('mqttStatus').className = 'connection-status disconnected';
-                // MQTT bağlanmazsa localStorage'dan göster
-                displayHours();
             });
+
+            client.on('close', () => {
+                console.log('🔌 MQTT bağlantı koptu');
+                document.getElementById('mqttStatus').textContent = 'Bağlantı Koptu';
+                document.getElementById('mqttStatus').className = 'connection-status disconnected';
+                attemptReconnect();
+            });
+
+            client.on('offline', () => {
+                console.log('📴 MQTT offline');
+                document.getElementById('mqttStatus').textContent = 'Çevrimiçi Değil';
+                document.getElementById('mqttStatus').className = 'connection-status disconnected';
+                attemptReconnect();
+            });
+        }
+
+        function attemptReconnect() {
+            // Zaten bir timer varsa iptal et
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+            }
+            
+            reconnectAttempts++;
+            
+            // Exponential backoff: 5, 10, 20, 40, 60 saniye
+            reconnectDelay = Math.min(reconnectDelay * 2, 60000);
+            
+            console.log(`🔄 ${reconnectDelay / 1000} saniye sonra yeniden bağlanılacak (Deneme: ${reconnectAttempts})`);
+            
+            // Kullanıcıya göster
+            document.getElementById('mqttStatus').textContent = 
+                `Yeniden bağlanıyor (${reconnectDelay / 1000}s)`;
+            
+            reconnectTimer = setTimeout(() => {
+                console.log('🔄 Yeniden bağlanma denemesi...');
+                
+                // Eski bağlantıyı temizle
+                if (client) {
+                    client.end(true);  // Force close
+                }
+                
+                // Yeni bağlantı
+                connectMQTT();
+            }, reconnectDelay);
         }
 
         function setTarget() {
@@ -362,6 +460,16 @@
         function setHysteresis() {
             const value = document.getElementById('hysteresisInput').value;
             client.publish('thermostat/control/hysteresis', value);
+        }
+
+        function setCalibration() {
+            const value = parseFloat(document.getElementById('calibrationInput').value);
+            if (value < -5 || value > 5) {
+                showToast('Kalibrasyon -5 ile +5 arası olmalı!');
+                return;
+            }
+            client.publish('thermostat/control/calibration', value.toString(), {retain: true});
+            showToast(`Kalibrasyon ${value > 0 ? '+' : ''}${value}°C olarak ayarlandı`);
         }
 
         function setMode() {
@@ -387,6 +495,13 @@
                     }, 2500);
                 }
             }
+        }
+        
+        function setKeyLock() {
+            const isLocked = document.getElementById('keyLockToggle').checked;
+            client.publish('thermostat/control/keylock', isLocked ? 'ON' : 'OFF', {retain: true});
+            document.getElementById('keyLockWarning').classList.toggle('active', isLocked);
+            showToast(isLocked ? '🔒 Tuş kilidi aktif' : '🔓 Tuş kilidi kapatıldı');
         }
         
         function updateTargetInputState(mode) {
@@ -569,8 +684,26 @@
         }
 
         // Sayfa yüklendiğinde bağlan
-        window.onload = () => {
-            // localStorage'dan yükleme - sadece MQTT gelmezse yedek olarak
+        window.onload = () => {            // localStorage'dan mod yükle (MQTT gelene kadar geçici)
+            const savedMode = localStorage.getItem('thermostat_mode');
+            if (savedMode) {
+                document.getElementById('modeSelect').value = savedMode;
+                updateTargetInputState(savedMode);
+            }
+            
+            // Tuş kilidi durumunu yükle
+            const savedKeyLock = localStorage.getItem('thermostat_keylock');
+            if (savedKeyLock === 'ON') {
+                document.getElementById('keyLockToggle').checked = true;
+                document.getElementById('keyLockWarning').classList.add('active');
+            }
+            
+            // Kalibrasyon değerini yükle
+            const savedCalibration = localStorage.getItem('thermostat_calibration');
+            if (savedCalibration) {
+                document.getElementById('calibrationInput').value = parseFloat(savedCalibration);
+            }
+                        // localStorage'dan yükleme - sadece MQTT gelmezse yedek olarak
             const loaded = loadSchedule();
             if (!loaded) {
                 initSchedule();
