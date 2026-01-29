@@ -102,7 +102,7 @@
             </div>
         </div>
         
-        <div class="card">
+        <div class="card" id="scheduleCard">
             <h2>Haftalık Program</h2>
             
             <div class="current-time" id="currentTime">
@@ -290,7 +290,17 @@
                 console.log('Mesaj:', topic, msg);
                 
                 if (topic === 'thermostat/status/temperature') {
-                    document.getElementById('currentTemp').textContent = parseFloat(msg).toFixed(1) + '°C';
+                    const tempDisplay = document.getElementById('currentTemp');
+                    if (msg === 'ERROR') {
+                        tempDisplay.textContent = '⚠️ SENSÖR HATASI!';
+                        tempDisplay.style.color = '#ff4444';
+                        tempDisplay.style.fontSize = '24px';
+                        showToast('⚠️ SENSÖR ARIZASI - KOMBİ KAPATILDI!');
+                    } else {
+                        tempDisplay.textContent = parseFloat(msg).toFixed(1) + '°C';
+                        tempDisplay.style.color = '#e94560';
+                        tempDisplay.style.fontSize = '48px';
+                    }
                 }
                 else if (topic === 'thermostat/status/humidity') {
                     document.getElementById('humidity').textContent = parseFloat(msg).toFixed(1) + '%';
@@ -383,17 +393,20 @@
             const input = document.getElementById('targetInput');
             const button = document.getElementById('targetButton');
             const hint = document.getElementById('targetModeHint');
+            const scheduleCard = document.getElementById('scheduleCard');
             
             if (mode === 'manual') {
                 input.disabled = false;
                 button.disabled = false;
                 button.style.opacity = '1';
                 hint.style.display = 'none';
+                scheduleCard.style.display = 'none';  // Manuel modda gizle
             } else {
                 input.disabled = true;
                 button.disabled = true;
                 button.style.opacity = '0.5';
                 hint.style.display = 'inline';
+                scheduleCard.style.display = 'block';  // Otomatik modda göster
             }
         }
         
