@@ -101,19 +101,6 @@
                 <button id="targetButton" onclick="setTarget()" disabled style="opacity: 0.5;">Ayarla</button>
             </div>
             <div class="control-group">
-                <label>Aralık (°C)</label>
-                <input type="number" id="hysteresisInput" min="0.1" max="3" step="0.1" value="0.5">
-                <button onclick="setHysteresis()">Ayarla</button>
-            </div>
-            <div class="control-group">
-                <label>🔧 Sensör Kalibrasyonu (°C)</label>
-                <input type="number" id="calibrationInput" min="-5" max="5" step="0.1" value="0.0">
-                <button onclick="setCalibration()">Ayarla</button>
-                <small style="display: block; color: #aaa; font-size: 12px; margin-top: 5px;">
-                    Sensör sapması varsa düzeltme değeri girin (örn: +2.5 veya -1.0)
-                </small>
-            </div>
-            <div class="control-group">
                 <label>Mod</label>
                 <select id="modeSelect" onchange="setMode()">
                     <option value="auto">Otomatik</option>
@@ -133,6 +120,9 @@
             <div class="keylock-warning" id="keyLockWarning">
                 ⚠️ Tuş kilidi aktif - Cihaz üzerinden kontrol devre dışı!
             </div>
+            <button onclick="showSettingsModal()" style="background: #0f3460; margin-top: 15px;">
+                ⚙️ Gelişmiş Ayarlar
+            </button>
         </div>
         
         <div class="card" id="scheduleCard">
@@ -198,6 +188,44 @@
                 <button onclick="applyCopy()" style="flex: 1;">Kopyala</button>
                 <button onclick="closeCopyModal()" style="flex: 1; background: #666;">Iptal</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Gelişmiş Ayarlar Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <h3>⚙️ Gelişmiş Ayarlar</h3>
+            
+            <div class="control-group">
+                <label>Aralık (°C)</label>
+                <input type="number" id="hysteresisInput" min="0.1" max="3" step="0.1" value="0.5">
+                <button onclick="setHysteresis()">Ayarla</button>
+                <small style="display: block; color: #aaa; font-size: 11px; margin-top: 3px;">
+                    Isıtmanın açılıp kapanma aralığı
+                </small>
+            </div>
+            
+            <div class="control-group" style="margin-top: 15px;">
+                <label>🔧 Sensör Kalibrasyonu (°C)</label>
+                <input type="number" id="calibrationInput" min="-5" max="5" step="0.1" value="0.0">
+                <button onclick="setCalibration()">Ayarla</button>
+                <small style="display: block; color: #aaa; font-size: 11px; margin-top: 3px;">
+                    Sensör sapması varsa düzeltme (örn: +2.5)
+                </small>
+            </div>
+            
+            <div class="control-group" style="margin-top: 15px;">
+                <label>📺 LCD Kontrast (40-80)</label>
+                <input type="number" id="contrastInput" min="40" max="80" step="1" value="70">
+                <button onclick="setContrast()">Ayarla</button>
+                <small style="display: block; color: #aaa; font-size: 11px; margin-top: 3px;">
+                    LCD çok koyu/açık görünüyorsa ayarlayın
+                </small>
+            </div>
+            
+            <button onclick="closeSettingsModal()" style="background: #666; margin-top: 20px;">
+                Kapat
+            </button>
         </div>
     </div>
 
@@ -321,6 +349,7 @@
                 client.subscribe('thermostat/schedule/update');
                 client.subscribe('thermostat/control/keylock');
                 client.subscribe('thermostat/control/calibration');
+                client.subscribe('thermostat/control/contrast');
                 
                 // Bağlanınca NodeMCU'dan program iste
                 setTimeout(() => {
@@ -376,6 +405,11 @@
                     document.getElementById('calibrationInput').value = parseFloat(msg);
                     localStorage.setItem('thermostat_calibration', msg);
                     console.log('Kalibrasyon:', msg + '°C');
+                }
+                else if (topic === 'thermostat/control/contrast') {
+                    document.getElementById('contrastInput').value = parseInt(msg);
+                    localStorage.setItem('thermostat_contrast', msg);
+                    console.log('LCD Kontrast:', msg);
                 }
                 else if (topic === 'thermostat/schedule/update') {
                     try {
@@ -470,6 +504,16 @@
             }
             client.publish('thermostat/control/calibration', value.toString(), {retain: true});
             showToast(`Kalibrasyon ${value > 0 ? '+' : ''}${value}°C olarak ayarlandı`);
+        }
+
+        function setContrast() {
+            const value = parseInt(document.getElementById('contrastInput').value);
+            if (value < 40 || value > 80) {
+                showToast('Kontrast 40 ile 80 arası olmalı!');
+                return;
+            }
+            client.publish('thermostat/control/contrast', value.toString(), {retain: true});
+            showToast(`LCD kontrast ${value} olarak ayarlandı`);
         }
 
         function setMode() {
@@ -625,6 +669,14 @@
             document.getElementById('copyModal').style.display = 'none';
         }
         
+        function showSettingsModal() {
+            document.getElementById('settingsModal').style.display = 'block';
+        }
+        
+        function closeSettingsModal() {
+            document.getElementById('settingsModal').style.display = 'none';
+        }
+        
         function applyCopy() {
             const checkboxes = document.querySelectorAll('.day-checkbox input:checked');
             if (checkboxes.length === 0) {
@@ -702,6 +754,12 @@
             const savedCalibration = localStorage.getItem('thermostat_calibration');
             if (savedCalibration) {
                 document.getElementById('calibrationInput').value = parseFloat(savedCalibration);
+            }
+            
+            // LCD kontrast değerini yükle
+            const savedContrast = localStorage.getItem('thermostat_contrast');
+            if (savedContrast) {
+                document.getElementById('contrastInput').value = parseInt(savedContrast);
             }
                         // localStorage'dan yükleme - sadece MQTT gelmezse yedek olarak
             const loaded = loadSchedule();
