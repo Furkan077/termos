@@ -83,10 +83,10 @@
         
         <div class="card">
             <h2>Kontrol</h2>
-            <div class="control-group">
-                <label>Hedef Sıcaklık (°C)</label>
-                <input type="number" id="targetInput" min="15" max="30" step="0.5" value="22">
-                <button onclick="setTarget()">Ayarla</button>
+            <div class="control-group" id="targetGroup">
+                <label>Hedef Sıcaklık (°C) <span id="targetModeHint" style="font-size: 11px; color: #e94560;">(Sadece Manuel Modda)</span></label>
+                <input type="number" id="targetInput" min="15" max="30" step="0.5" value="22" disabled>
+                <button id="targetButton" onclick="setTarget()" disabled style="opacity: 0.5;">Ayarla</button>
             </div>
             <div class="control-group">
                 <label>Aralık (°C)</label>
@@ -309,6 +309,7 @@
                 }
                 else if (topic === 'thermostat/control/mode') {
                     document.getElementById('modeSelect').value = msg;
+                    updateTargetInputState(msg);
                 }
                 else if (topic === 'thermostat/schedule/update') {
                     try {
@@ -356,6 +357,44 @@
         function setMode() {
             const value = document.getElementById('modeSelect').value;
             client.publish('thermostat/control/mode', value);
+            updateTargetInputState(value);
+            
+            // Otomatik moda geçince aktif program değerini hedef olarak gönder
+            if (value === 'auto') {
+                const now = new Date();
+                const dayMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                const today = dayMap[now.getDay()];
+                const currentHour = now.getHours();
+                
+                if (schedule[today] && schedule[today][currentHour] !== undefined) {
+                    const programTarget = schedule[today][currentHour];
+                    // 2.5 saniye gecikme ile gönder (NodeMCU'nun ignore süresi bittikten sonra)
+                    setTimeout(() => {
+                        client.publish('thermostat/control/target', programTarget.toString(), {retain: true});
+                        document.getElementById('targetTemp').textContent = programTarget.toFixed(1) + '°C';
+                        document.getElementById('targetInput').value = programTarget;
+                        console.log('Oto mod: Program değeri gönderildi:', programTarget);
+                    }, 2500);
+                }
+            }
+        }
+        
+        function updateTargetInputState(mode) {
+            const input = document.getElementById('targetInput');
+            const button = document.getElementById('targetButton');
+            const hint = document.getElementById('targetModeHint');
+            
+            if (mode === 'manual') {
+                input.disabled = false;
+                button.disabled = false;
+                button.style.opacity = '1';
+                hint.style.display = 'none';
+            } else {
+                input.disabled = true;
+                button.disabled = true;
+                button.style.opacity = '0.5';
+                hint.style.display = 'inline';
+            }
         }
         
         function setCheckInterval() {
